@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hex Editor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-color: #f0f0f0;
+    }
+    #hex-editor-container {
+      margin-top: 20px;
+      display: grid;
+      grid-template-columns: auto auto auto;
+      gap: 10px;
+      max-width: 90%;
+      overflow-x: auto;
+    }
+    .offset-column, .hex-column, .ascii-column {
+      display: flex;
+      flex-direction: column;
+    }
+    .header {
+      font-weight: bold;
+      background-color: #ddd;
+      padding: 5px 10px;
+      text-align: center;
+      font-family: monospace;
+    }
+    .row {
+      display: flex;
+      font-family: monospace;
+      white-space: pre;
+    }
+    .offset {
+      width: 80px;
+      text-align: right;
+      padding-right: 10px;
+      font-size: 14px;
+    }
+    .hex-row, .ascii-row {
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+    }
+    .editable {
+      cursor: pointer;
+      padding: 0 5px;
+      background-color: #e6e6e6;
+      border-radius: 3px;
+    }
+    .editable:hover {
+      background-color: #ccc;
+    }
+    .non-editable {
+      padding: 0 5px;
+      color: #555;
+    }
+    #file-input {
+      margin: 20px 0;
+    }
+    #save-button {
+      margin: 20px;
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #save-button:hover {
+      background-color: #0056b3;
+    }
+    #edit-dialog {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background-color: white;
+      border: 1px solid #ccc;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+      padding: 20px;
+      z-index: 1000;
+      text-align: center;
+    }
+    #edit-dialog input {
+      font-size: 18px;
+      width: 100px;
+      text-align: center;
+    }
+    #dialog-overlay {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 999;
+    }
+  </style>
+</head>
+<body>
+  <h1>Hex Editor</h1>
+  <input type="file" id="file-input" />
+  <button id="save-button" disabled>Save File</button>
+  <div id="hex-editor-container">
+    <div class="offset-column">
+      <div class="header">Offset</div>
+    </div>
+    <div class="hex-column">
+      <div class="header">Hex</div>
+    </div>
+    <div class="ascii-column">
+      <div class="header">ASCII</div>
+    </div>
+  </div>
+
+  <!-- Edit Dialog -->
+  <div id="dialog-overlay"></div>
+  <div id="edit-dialog">
+    <h3>Edit Hex Value</h3>
+    <input type="text" id="hex-input" maxlength="2" />
+    <br /><br />
+    <button id="dialog-save">Save</button>
+    <button id="dialog-cancel">Cancel</button>
+  </div>
+
+  <script>
+    const fileInput = document.getElementById('file-input');
+    const saveButton = document.getElementById('save-button');
+    const hexEditorContainer = document.getElementById('hex-editor-container');
+    const editDialog = document.getElementById('edit-dialog');
+    const dialogOverlay = document.getElementById('dialog-overlay');
+    const hexInput = document.getElementById('hex-input');
+    const dialogSave = document.getElementById('dialog-save');
+    const dialogCancel = document.getElementById('dialog-cancel');
+    const BYTES_PER_LINE = 8;
+    let dataBuffer = null;
+    let currentHexElement = null;
+    let fileName = '';
+
+    fileInput.addEventListener('change', (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      fileName = file.name;  // Get the file name
+      const reader = new FileReader();
+      reader.onload = () => {
+        dataBuffer = new Uint8Array(reader.result);
+        displayHexEditor(dataBuffer);
+        saveButton.disabled = false;
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    saveButton.addEventListener('click', () => {
+      if (!dataBuffer) return;
+
+      const blob = new Blob([dataBuffer], { type: 'application/octet-stream' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = fileName;  // Download with the original file name
+      link.click();
+    });
+
+    function displayHexEditor(data) {
+      const offsetColumn = document.querySelector('.offset-column');
+      const hexColumn = document.querySelector('.hex-column');
+      const asciiColumn = document.querySelector('.ascii-column');
+
+      offsetColumn.innerHTML = '<div class="header">Offset</div>';
+      hexColumn.innerHTML = '<div class="header">Hex</div>';
+      asciiColumn.innerHTML = '<div class="header">ASCII</div>';
+
+      for (let i = 0; i < data.length; i += BYTES_PER_LINE) {
+        // Offset view
+        const offsetDiv = document.createElement('div');
+        offsetDiv.className = 'offset';
+        offsetDiv.textContent = i.toString(16).padStart(8, '0').toUpperCase();
+        offsetColumn.appendChild(offsetDiv);
+
+        // Hex view
+        const hexRow = document.createElement('div');
+        hexRow.className = 'hex-row row';
+        for (let j = i; j < i + BYTES_PER_LINE && j < data.length; j++) {
+          const hexValue = data[j].toString(16).padStart(2, '0').toUpperCase();
+          const span = document.createElement('span');
+          span.className = 'editable';
+          span.textContent = hexValue + ' ';
+          span.dataset.index = j;
+          span.addEventListener('click', openEditDialog);
+          hexRow.appendChild(span);
+        }
+        hexColumn.appendChild(hexRow);
+
+        // ASCII view
+        const asciiRow = document.createElement('div');
+        asciiRow.className = 'ascii-row row';
+        for (let j = i; j < i + BYTES_PER_LINE && j < data.length; j++) {
+          const charValue = String.fromCharCode(data[j]);
+          const span = document.createElement('span');
+          span.className = 'non-editable';
+          span.dataset.index = j;
+          span.textContent = /[\x20-\x7E]/.test(charValue) ? charValue : '.';
+          asciiRow.appendChild(span);
+        }
+        asciiColumn.appendChild(asciiRow);
+      }
+    }
+
+    function openEditDialog(event) {
+      currentHexElement = event.target;
+      hexInput.value = currentHexElement.textContent.trim();
+      editDialog.style.display = 'block';
+      dialogOverlay.style.display = 'block';
+      hexInput.focus();
+    }
+
+    dialogSave.addEventListener('click', () => {
+      const value = hexInput.value.trim();
+      if (/^[0-9A-Fa-f]{2}$/.test(value)) {
+        currentHexElement.textContent = value.toUpperCase() + ' ';
+        const index = parseInt(currentHexElement.dataset.index, 10);
+        const asciiElement = document.querySelector(`.ascii-row span[data-index="${index}"]`);
+        const intValue = parseInt(value, 16);
+        dataBuffer[index] = intValue;
+        asciiElement.textContent = /[\x20-\x7E]/.test(String.fromCharCode(intValue)) ? String.fromCharCode(intValue) : '.';
+        closeEditDialog();
+      } else {
+        alert('Invalid hex value. Must be two hexadecimal characters.');
+      }
+    });
+
+    dialogCancel.addEventListener('click', closeEditDialog);
+
+    function closeEditDialog() {
+      editDialog.style.display = 'none';
+      dialogOverlay.style.display = 'none';
+    }
+  </script>
+</body>
+</html>
